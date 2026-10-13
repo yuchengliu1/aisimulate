@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Sync upstream main
+
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'yuchengliu1/aisimulate' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch, rebase, and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="$auth_header"
+
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          expected_sha="$(git rev-parse refs/remotes/origin/main)"
+          git checkout --detach "$expected_sha"
+          git remote add upstream https://github.com/ai-dynamo/aisimulate.git
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Fork main already contains upstream main; nothing to sync."
+            exit 0
+          fi
+          git rebase upstream/main
+          git push --force-with-lease="refs/heads/main:${expected_sha}" origin HEAD:refs/heads/main
